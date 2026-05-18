@@ -34,7 +34,7 @@ python -m unittest discover -s tests
 
 ## 使用真实 A 股数据
 
-默认数据源是 `auto`，会按东方财富、 新浪、腾讯的顺序尝试：
+默认数据源是 `auto`，会按东方财富、新浪、腾讯的顺序尝试：
 
 ```powershell
 python scripts\run_real_data_demo.py --symbol 000001 --start 20240101 --end 20251231
