@@ -76,7 +76,35 @@ python scripts\check_data_sources.py --symbol 600519 --sources akshare-sina aksh
 
 输出会包含每个数据源的请求状态、缓存命中情况、缺失日期数量和字段差异数量。价格差异默认容忍 `0.01`，成交量差异默认容忍 `0.1%`。
 
+## 纸面交易信号
+
+系统可以把策略信号转换成经过风控检查的纸面订单：
+
+```powershell
+python scripts\paper_trade_signal.py --symbol 000001 --start 20240101 --end 20251231
+```
+
+这个脚本不会连接券商，也不会真实下单。它会生成审计日志和人工确认订单文件：
+
+- `reports/audit_trail.csv`
+- `reports/orders_*.csv`
+
+默认只生成计划订单，不模拟成交。需要在纸面账户里模拟成交时，显式添加：
+
+```powershell
+python scripts\paper_trade_signal.py --symbol 000001 --start 20240101 --end 20251231 --paper-fill
+```
+
+默认风控包括：
+
+- 单笔订单金额上限
+- 单票持仓金额上限
+- 单票持仓占总资产比例上限
+- 最低现金缓冲
+- A 股 100 股整手约束
+
 ## 下一步
 
-1. 扩展手续费、滑点、涨跌停、停牌处理。
-2. 做策略报告可视化。
+1. 增加交易审计日志落盘。
+2. 扩展涨跌停、停牌、集合竞价等 A 股交易约束。
+3. 做策略报告可视化。
