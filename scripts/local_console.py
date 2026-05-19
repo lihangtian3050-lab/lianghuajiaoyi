@@ -54,8 +54,9 @@ INDEX_HTML = """<!doctype html>
         <a class="button" href="/watch?strategy=momentum">动量策略</a>
         <a class="button" href="/watch?strategy=breakout">突破策略</a>
         <a class="button" href="/watch?strategy=reversal">反转观察</a>
+        <a class="button" href="/watch?strategy=overnight_yang">一夜持股观察</a>
       </div>
-      <div class="note">盯盘页会展示热门板块、策略候选、推荐理由、新闻佐证、情绪标签和人工核验链接。</div>
+      <div class="note">盯盘页会展示热门板块、策略候选、推荐理由、新闻佐证、情绪标签和人工核验链接。“一夜持股观察”只做公开规则的候选过滤，不代表买入建议。</div>
     </section>
     <section class="panel">
       <h2>单票研究报告</h2>

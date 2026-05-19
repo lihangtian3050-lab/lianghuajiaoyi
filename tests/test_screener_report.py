@@ -9,7 +9,7 @@ from quant_trading.screener_report import render_screener_html
 class ScreenerReportTests(unittest.TestCase):
     def test_render_screener_html_contains_sections(self):
         result = ScreenResult(
-            strategy="momentum",
+            strategy="overnight_yang",
             hot_boards=[HotBoard("半导体", 3.2, "测试股份", 10.0)],
             candidates=[
                 Candidate(
@@ -38,6 +38,7 @@ class ScreenerReportTests(unittest.TestCase):
         self.assertIn("热门板块", html)
         self.assertIn("平安银行", html)
         self.assertIn("偏积极", html)
+        self.assertIn("一夜持股观察", html)
 
 
 if __name__ == "__main__":

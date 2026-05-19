@@ -155,9 +155,11 @@ python scripts\local_console.py --open
 http://127.0.0.1:8765/watch?strategy=momentum
 http://127.0.0.1:8765/watch?strategy=breakout
 http://127.0.0.1:8765/watch?strategy=reversal
+http://127.0.0.1:8765/watch?strategy=overnight_yang
 ```
 
 盯盘页会展示热门板块、策略候选、候选理由、新闻佐证、情绪标签和人工核验链接。页面默认每 60 秒刷新一次。
+`overnight_yang` 是基于公开资料整理的“杨永兴风格隔夜观察”候选过滤，只使用实时快照字段筛选量比、换手率、市值和涨幅；分时均线、尾盘盘口和次日卖出纪律需要人工复核。
 
 ## 下一步
 

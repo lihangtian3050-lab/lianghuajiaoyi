@@ -115,6 +115,8 @@ def fetch_realtime_quotes() -> pd.DataFrame:
         "最新价": "price",
         "涨跌幅": "pct_change",
         "成交额": "amount",
+        "总市值": "market_cap",
+        "流通市值": "float_market_cap",
         "换手率": "turnover_rate",
         "量比": "volume_ratio",
         "60日涨跌幅": "return_60d",
@@ -125,7 +127,17 @@ def fetch_realtime_quotes() -> pd.DataFrame:
     missing = [column for column in required if column not in frame.columns]
     if missing:
         raise ValueError(f"实时行情缺少字段: {missing}")
-    for column in ["price", "pct_change", "amount", "turnover_rate", "volume_ratio", "return_60d", "return_ytd"]:
+    for column in [
+        "price",
+        "pct_change",
+        "amount",
+        "market_cap",
+        "float_market_cap",
+        "turnover_rate",
+        "volume_ratio",
+        "return_60d",
+        "return_ytd",
+    ]:
         if column in frame.columns:
             frame[column] = pd.to_numeric(frame[column], errors="coerce")
     frame = frame.dropna(subset=["price", "pct_change"])
@@ -170,6 +182,8 @@ def _evaluate_candidate(row: pd.Series, strategy: str) -> Candidate | None:
     turnover = _number(row.get("turnover_rate", 0.0))
     volume_ratio = _number(row.get("volume_ratio", 0.0))
     amount = _number(row.get("amount", 0.0))
+    market_cap = _number(row.get("market_cap", 0.0))
+    float_market_cap = _number(row.get("float_market_cap", 0.0))
     return_60d = _number(row.get("return_60d", 0.0))
     return_ytd = _number(row.get("return_ytd", 0.0))
     code = str(row.get("code", ""))
@@ -197,6 +211,18 @@ def _evaluate_candidate(row: pd.Series, strategy: str) -> Candidate | None:
             return None
         score = abs(pct) + abs(min(return_ytd, 0)) * 0.2 + turnover * 0.2
         reasons = [f"当日回调 {pct:.2f}%", f"年初至今 {return_ytd:.2f}%", "仅作为反转观察，不代表抄底"]
+    elif strategy == "overnight_yang":
+        effective_cap = float_market_cap or market_cap
+        if volume_ratio < 1 or turnover < 5 or turnover > 10 or effective_cap <= 0 or effective_cap > 20_000_000_000 or pct < 1:
+            return None
+        score = pct * 1.2 + volume_ratio * 2 + (10 - abs(turnover - 7.5)) + max(0, 20_000_000_000 - effective_cap) / 2_000_000_000
+        reasons = [
+            "杨永兴风格隔夜观察：尾盘候选，非自动买入",
+            f"量比 {volume_ratio:.2f}，高于 1",
+            f"换手率 {turnover:.2f}%，处于 5%-10% 区间",
+            f"参考市值 {effective_cap/100_000_000:.2f} 亿，低于 200 亿",
+            f"当日涨幅 {pct:.2f}%，需人工确认分时是否强于均线",
+        ]
     else:
         raise ValueError(f"未知策略: {strategy}")
 
