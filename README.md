@@ -109,8 +109,23 @@ python scripts\paper_trade_signal.py --symbol 000001 --start 20240101 --end 2025
 - 最低现金缓冲
 - A 股 100 股整手约束
 
+## HTML 可视化报告
+
+生成新手友好的静态网页报告：
+
+```powershell
+python scripts\generate_html_report.py --symbol 000001 --start 20240101 --end 20251231 --capital-profile small-2000
+```
+
+默认输出到：
+
+```text
+reports/dashboard.html
+```
+
+这个 HTML 文件可以直接用浏览器打开，里面包含净值曲线、回撤、收益指标、策略信号、候选订单和风控结果。
+
 ## 下一步
 
-1. 增加交易审计日志落盘。
-2. 扩展涨跌停、停牌、集合竞价等 A 股交易约束。
-3. 做策略报告可视化。
+1. 扩展涨跌停、停牌、集合竞价等 A 股交易约束。
+2. 把 HTML 报告升级成可交互的本地控制台。
