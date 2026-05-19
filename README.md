@@ -125,7 +125,29 @@ reports/dashboard.html
 
 这个 HTML 文件可以直接用浏览器打开，里面包含净值曲线、回撤、收益指标、策略信号、候选订单和风控结果。
 
+## 本地控制台
+
+启动本地网页控制台：
+
+```powershell
+python scripts\local_console.py
+```
+
+然后在浏览器打开：
+
+```text
+http://127.0.0.1:8765
+```
+
+也可以启动时自动打开浏览器：
+
+```powershell
+python scripts\local_console.py --open
+```
+
+控制台可以输入股票代码、日期、数据源、资金档位和当前持仓，点击按钮后生成 `reports/dashboard.html` 并在浏览器中展示。
+
 ## 下一步
 
 1. 扩展涨跌停、停牌、集合竞价等 A 股交易约束。
-2. 把 HTML 报告升级成可交互的本地控制台。
+2. 增加多股票组合视图。
