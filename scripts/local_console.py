@@ -88,7 +88,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             params = parse_qs(parsed.query)
             strategy = _value(params, "strategy", "momentum")
             refresh_seconds = int(_value(params, "refresh", "60") or "60")
-            result = screen_market(strategy=strategy, limit=10, news_limit=3, quote_timeout=25)
+            result = screen_market(strategy=strategy, limit=10, news_limit=3, quote_timeout=8)
             self._send_html(render_screener_html(result, refresh_seconds=refresh_seconds))
             return
         if parsed.path == "/report":

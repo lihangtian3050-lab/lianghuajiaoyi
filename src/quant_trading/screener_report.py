@@ -82,10 +82,11 @@ def _candidate_row(candidate) -> str:
         news_titles = f"<li>{escape(candidate.news.message)}</li>"
     links = "".join(f'<li><a href="{escape(url)}" target="_blank" rel="noreferrer">{escape(label)}</a></li>' for label, url in candidate.news.verification_links)
     pct_class = "pos" if candidate.pct_change >= 0 else "neg"
+    price_text = f"{candidate.price:.2f}" if candidate.price > 0 else "待实时确认"
     return f"""<tr>
       <td>{escape(candidate.code)}</td>
       <td>{escape(candidate.name)}</td>
-      <td>{candidate.price:.2f}</td>
+      <td>{escape(price_text)}</td>
       <td class="{pct_class}">{candidate.pct_change:.2f}%</td>
       <td>{candidate.score:.2f}</td>
       <td><ul>{reasons}</ul></td>
