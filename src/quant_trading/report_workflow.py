@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from quant_trading.analysis import analyze_market_data
 from quant_trading.backtest import BacktestConfig, run_backtest
 from quant_trading.data_cache import get_or_fetch_a_share_history
 from quant_trading.data_sources import DataSourceConfig
 from quant_trading.html_report import HtmlReportContext, write_html_report
+from quant_trading.news import fetch_stock_news
 from quant_trading.risk import check_order_risk, risk_config_for_profile
 from quant_trading.strategy import moving_average_signal
 from quant_trading.trading import PaperBroker, build_target_order, round_down_to_lot
@@ -35,6 +37,8 @@ def build_html_report_context(
     )
     signal = moving_average_signal(data, fast_window=10, slow_window=30)
     backtest = run_backtest(data, signal, BacktestConfig(initial_cash=account_cash))
+    analysis = analyze_market_data(data, signal)
+    news = fetch_stock_news(symbol)
     latest_signal = float(signal.iloc[-1])
     latest_close = float(data["close"].iloc[-1])
 
@@ -68,6 +72,8 @@ def build_html_report_context(
         order=order,
         decision=decision,
         backtest=backtest,
+        analysis=analysis,
+        news=news,
     )
 
 

@@ -3,9 +3,11 @@ import unittest
 from pathlib import Path
 
 from tests import context  # noqa: F401
+from quant_trading.analysis import analyze_market_data
 from quant_trading.backtest import BacktestConfig, run_backtest
 from quant_trading.data import generate_sample_ohlcv
 from quant_trading.html_report import HtmlReportContext, render_html_report, write_html_report
+from quant_trading.news import NewsCheck
 from quant_trading.risk import RiskConfig, RiskDecision
 from quant_trading.strategy import moving_average_signal
 from quant_trading.trading import BUY, Order
@@ -16,6 +18,8 @@ class HtmlReportTests(unittest.TestCase):
         data = generate_sample_ohlcv("SAMPLE", periods=60, seed=7)
         signal = moving_average_signal(data, 5, 20)
         backtest = run_backtest(data, signal, BacktestConfig(initial_cash=2_000))
+        analysis = analyze_market_data(data, signal, 5, 20)
+        news = NewsCheck(items=[], status="empty", message="无新闻", verification_links=[])
 
         html = render_html_report(
             HtmlReportContext(
@@ -31,18 +35,24 @@ class HtmlReportTests(unittest.TestCase):
                 order=Order("000001", BUY, 100, 10.0, "test"),
                 decision=RiskDecision(True, []),
                 backtest=backtest,
+                analysis=analysis,
+                news=news,
             )
         )
 
-        self.assertIn("000001 量化交易报告", html)
+        self.assertIn("000001 量化研究报告", html)
         self.assertIn("净值与回撤", html)
         self.assertIn("候选订单与风控", html)
+        self.assertIn("新闻核验", html)
+        self.assertIn("清晰分析结论", html)
         self.assertIn("chartData", html)
 
     def test_write_html_report_creates_file(self):
         data = generate_sample_ohlcv("SAMPLE", periods=60, seed=7)
         signal = moving_average_signal(data, 5, 20)
         backtest = run_backtest(data, signal, BacktestConfig(initial_cash=2_000))
+        analysis = analyze_market_data(data, signal, 5, 20)
+        news = NewsCheck(items=[], status="empty", message="无新闻", verification_links=[])
 
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "dashboard.html"
@@ -61,6 +71,8 @@ class HtmlReportTests(unittest.TestCase):
                     order=None,
                     decision=None,
                     backtest=backtest,
+                    analysis=analysis,
+                    news=news,
                 ),
             )
 
