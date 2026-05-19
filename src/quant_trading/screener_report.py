@@ -14,6 +14,10 @@ def render_screener_html(result: ScreenResult, refresh_seconds: int = 60) -> str
         f"<li>{escape(board.name)}：{board.pct_change:.2f}% 领涨 {escape(board.leader)} {board.leader_pct:.2f}%</li>"
         for board in result.hot_boards
     )
+    steps = "".join(
+        f"<li><strong>{escape(step.stage)}</strong>：{escape(step.status)}，{escape(step.message)}</li>"
+        for step in result.research_steps
+    )
     strategy_label = {
         "momentum": "动量策略",
         "breakout": "突破策略",
@@ -57,6 +61,10 @@ def render_screener_html(result: ScreenResult, refresh_seconds: int = 60) -> str
     <div class="topnav"><a href="/">返回控制台</a><a href="/watch?strategy=momentum">动量策略</a><a href="/watch?strategy=breakout">突破策略</a><a href="/watch?strategy=reversal">反转观察</a><a href="/watch?strategy=overnight_yang">一夜持股观察</a></div>
   </header>
   <main>
+    <section class="panel">
+      <h2>研究流程</h2>
+      <ul>{steps}</ul>
+    </section>
     <section class="panel">
       <h2>热门板块</h2>
       <ul>{boards or '<li class="muted">板块数据暂不可用。</li>'}</ul>

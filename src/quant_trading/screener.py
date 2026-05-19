@@ -9,6 +9,7 @@ import re
 import pandas as pd
 
 from quant_trading.news import NewsCheck, fetch_stock_news
+from quant_trading.research_log import ResearchStep
 
 
 @dataclass(frozen=True)
@@ -43,23 +44,20 @@ class ScreenResult:
     hot_boards: list[HotBoard]
     status: str
     message: str
+    research_steps: list[ResearchStep]
 
 
 DEFAULT_WATCHLIST = {
     "000001": "平安银行",
-    "600519": "贵州茅台",
     "300750": "宁德时代",
     "002594": "比亚迪",
-    "000858": "五粮液",
-    "601318": "中国平安",
-    "600036": "招商银行",
     "300059": "东方财富",
     "600030": "中信证券",
-    "002475": "立讯精密",
 }
 
 
-def screen_market(strategy: str = "momentum", limit: int = 10, news_limit: int = 3, quote_timeout: int = 25) -> ScreenResult:
+def screen_market(strategy: str = "momentum", limit: int = 10, news_limit: int = 3, quote_timeout: int = 8) -> ScreenResult:
+    steps = [ResearchStep("初始化", "ok", f"使用 {strategy} 策略，目标候选数量 {limit}。")]
     hot_boards: list[HotBoard] = []
     fallback_message = ""
     executor = ThreadPoolExecutor(max_workers=2)
@@ -68,44 +66,52 @@ def screen_market(strategy: str = "momentum", limit: int = 10, news_limit: int =
     try:
         try:
             quotes = quotes_future.result(timeout=quote_timeout)
+            steps.append(ResearchStep("实时行情", "ok", f"获取到 {len(quotes)} 条实时行情。"))
         except TimeoutError as exc:
             quotes_future.cancel()
             raise TimeoutError(f"实时行情接口超过 {quote_timeout} 秒未返回") from exc
         try:
             hot_boards = boards_future.result(timeout=1)
+            steps.append(ResearchStep("热门板块", "ok", f"获取到 {len(hot_boards)} 个板块。"))
         except Exception:
             hot_boards = []
+            steps.append(ResearchStep("热门板块", "warn", "板块接口暂不可用，先展示候选股。"))
     except Exception as exc:
         fallback_message = f"实时行情获取失败：{exc}；已切换到近端日线降级候选池。"
         quotes = fetch_fallback_quotes()
+        steps.append(ResearchStep("实时行情", "warn", fallback_message))
+        steps.append(ResearchStep("降级候选池", "warn", f"使用 {len(quotes)} 条降级候选，价格字段需实时确认。"))
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
 
     if quotes.empty:
-        return ScreenResult(strategy=strategy, candidates=[], hot_boards=hot_boards, status="empty", message=fallback_message or "实时行情为空。")
+        steps.append(ResearchStep("候选筛选", "warn", "没有可用于筛选的行情记录。"))
+        return ScreenResult(strategy, [], hot_boards, "empty", fallback_message or "实时行情为空。", steps)
 
     candidates = []
     for _, row in quotes.iterrows():
         candidate = _evaluate_candidate(row, strategy)
-        if candidate is not None:
-            if fallback_message:
-                candidate = Candidate(
-                    code=candidate.code,
-                    name=candidate.name,
-                    price=candidate.price,
-                    pct_change=candidate.pct_change,
-                    turnover_rate=candidate.turnover_rate,
-                    volume_ratio=candidate.volume_ratio,
-                    amount=candidate.amount,
-                    strategy=candidate.strategy,
-                    score=candidate.score,
-                    reasons=["实时行情失败，以下为降级候选，必须刷新确认。", *candidate.reasons],
-                    sentiment_label=candidate.sentiment_label,
-                    sentiment_score=candidate.sentiment_score,
-                    news=candidate.news,
-                )
-            candidates.append(candidate)
+        if candidate is None:
+            continue
+        if fallback_message:
+            candidate = Candidate(
+                code=candidate.code,
+                name=candidate.name,
+                price=candidate.price,
+                pct_change=candidate.pct_change,
+                turnover_rate=candidate.turnover_rate,
+                volume_ratio=candidate.volume_ratio,
+                amount=candidate.amount,
+                strategy=candidate.strategy,
+                score=candidate.score,
+                reasons=["实时行情失败，以下为降级候选，必须刷新确认。", *candidate.reasons],
+                sentiment_label=candidate.sentiment_label,
+                sentiment_score=candidate.sentiment_score,
+                news=candidate.news,
+            )
+        candidates.append(candidate)
     candidates = sorted(candidates, key=lambda item: item.score, reverse=True)[:limit]
+    steps.append(ResearchStep("候选筛选", "ok" if candidates else "warn", f"策略筛出 {len(candidates)} 个候选。"))
 
     enriched = []
     for candidate in candidates:
@@ -139,9 +145,9 @@ def screen_market(strategy: str = "momentum", limit: int = 10, news_limit: int =
                 news=news,
             )
         )
-
+    steps.append(ResearchStep("新闻与情绪", "ok", f"完成 {len(enriched)} 个候选的新闻核验入口和情绪标签。"))
     status = "fallback" if fallback_message else "ok"
-    return ScreenResult(strategy=strategy, candidates=enriched, hot_boards=hot_boards, status=status, message=fallback_message or "实时扫描完成。")
+    return ScreenResult(strategy, enriched, hot_boards, status, fallback_message or "实时扫描完成。", steps)
 
 
 def fetch_realtime_quotes() -> pd.DataFrame:
@@ -169,32 +175,19 @@ def fetch_realtime_quotes() -> pd.DataFrame:
         if column in frame.columns:
             frame[column] = pd.to_numeric(frame[column], errors="coerce")
     frame = frame.dropna(subset=["price", "pct_change"])
-    frame = frame[frame["price"] > 0]
-    return frame
+    return frame[frame["price"] > 0]
 
 
 def fetch_fallback_quotes(watchlist: dict[str, str] | None = None) -> pd.DataFrame:
-    """Return a fast non-network fallback pool when realtime quotes are unavailable.
-
-    The rows are only placeholders for UI continuity. The status message tells users
-    that realtime data failed, so these rows must not be treated as live quotes.
-    """
-    watchlist = watchlist or {
-        "000001": "平安银行",
-        "300750": "宁德时代",
-        "002594": "比亚迪",
-        "300059": "东方财富",
-        "600030": "中信证券",
-    }
+    watchlist = watchlist or DEFAULT_WATCHLIST
     rows = []
     for index, (code, name) in enumerate(watchlist.items()):
         pct_change = 2.2 + index * 0.25
         return_60d = 18.0 + index * 1.5
+        return_ytd = 5.0 + index
         if index == len(watchlist) - 1:
             pct_change = -2.5
             return_ytd = -18.0
-        else:
-            return_ytd = 5.0 + index
         rows.append(
             {
                 "code": code,
@@ -217,7 +210,6 @@ def fetch_hot_boards(limit: int = 10) -> list[HotBoard]:
     try:
         ak = import_module("akshare")
         raw = ak.stock_board_industry_name_em()
-        rows = raw.head(limit)
         return [
             HotBoard(
                 name=str(row.get("板块名称", "")),
@@ -225,7 +217,7 @@ def fetch_hot_boards(limit: int = 10) -> list[HotBoard]:
                 leader=str(row.get("领涨股票", "")),
                 leader_pct=_number(row.get("领涨股票-涨跌幅", 0.0)),
             )
-            for _, row in rows.iterrows()
+            for _, row in raw.head(limit).iterrows()
         ]
     except Exception:
         return []
@@ -256,9 +248,7 @@ def _evaluate_candidate(row: pd.Series, strategy: str) -> Candidate | None:
     name = str(row.get("name", ""))
     price = _number(row.get("price", 0.0))
 
-    if not re.fullmatch(r"\d{6}", code):
-        return None
-    if name.startswith(("ST", "*ST")):
+    if not re.fullmatch(r"\d{6}", code) or name.startswith(("ST", "*ST")):
         return None
 
     if strategy == "momentum":
@@ -291,21 +281,7 @@ def _evaluate_candidate(row: pd.Series, strategy: str) -> Candidate | None:
     else:
         raise ValueError(f"未知策略: {strategy}")
 
-    return Candidate(
-        code=code,
-        name=name,
-        price=price,
-        pct_change=pct,
-        turnover_rate=turnover,
-        volume_ratio=volume_ratio,
-        amount=amount,
-        strategy=strategy,
-        score=score,
-        reasons=reasons,
-        sentiment_label="待核验",
-        sentiment_score=0,
-        news=NewsCheck(items=[], status="empty", message="尚未核验新闻。", verification_links=[]),
-    )
+    return Candidate(code, name, price, pct, turnover, volume_ratio, amount, strategy, score, reasons, "待核验", 0, NewsCheck([], "empty", "尚未核验新闻。", []))
 
 
 def _number(value) -> float:

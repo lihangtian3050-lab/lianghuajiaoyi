@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from quant_trading.report_workflow import generate_html_report
+from quant_trading.research_log import append_research_log, steps_to_dicts
 from quant_trading.screener import screen_market
 from quant_trading.screener_report import render_screener_html
 
@@ -89,6 +90,17 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             strategy = _value(params, "strategy", "momentum")
             refresh_seconds = int(_value(params, "refresh", "60") or "60")
             result = screen_market(strategy=strategy, limit=10, news_limit=3, quote_timeout=8)
+            append_research_log(
+                ROOT / "reports" / "research_log.jsonl",
+                "screener",
+                {
+                    "strategy": strategy,
+                    "status": result.status,
+                    "message": result.message,
+                    "candidate_count": len(result.candidates),
+                    "steps": steps_to_dicts(result.research_steps),
+                },
+            )
             self._send_html(render_screener_html(result, refresh_seconds=refresh_seconds))
             return
         if parsed.path == "/report":

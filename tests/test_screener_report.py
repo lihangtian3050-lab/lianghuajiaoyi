@@ -2,6 +2,7 @@ import unittest
 
 from tests import context  # noqa: F401
 from quant_trading.news import NewsCheck
+from quant_trading.research_log import ResearchStep
 from quant_trading.screener import Candidate, HotBoard, ScreenResult
 from quant_trading.screener_report import render_screener_html
 
@@ -30,12 +31,14 @@ class ScreenerReportTests(unittest.TestCase):
             ],
             status="ok",
             message="ok",
+            research_steps=[ResearchStep("测试", "ok", "流程记录")],
         )
 
         html = render_screener_html(result, refresh_seconds=0)
 
         self.assertIn("实时盯盘选股", html)
         self.assertIn("热门板块", html)
+        self.assertIn("研究流程", html)
         self.assertIn("平安银行", html)
         self.assertIn("偏积极", html)
         self.assertIn("一夜持股观察", html)

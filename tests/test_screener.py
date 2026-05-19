@@ -83,6 +83,7 @@ class ScreenerTests(unittest.TestCase):
             result = screen_market("momentum", limit=5, quote_timeout=5)
 
         self.assertEqual(result.status, "ok")
+        self.assertTrue(result.research_steps)
         self.assertEqual(len(result.candidates), 1)
         self.assertEqual(result.candidates[0].code, "000001")
         self.assertEqual(result.candidates[0].sentiment_label, "偏积极")
