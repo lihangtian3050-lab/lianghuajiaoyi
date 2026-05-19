@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from quant_trading.backtest import BacktestConfig, run_backtest
+from quant_trading.data_cache import get_or_fetch_a_share_history
 from quant_trading.data_sources import DataSourceConfig, fetch_a_share_history
 from quant_trading.strategy import moving_average_signal
 
@@ -22,20 +23,29 @@ def main() -> None:
         help="真实行情数据源",
     )
     parser.add_argument("--adjust", default="qfq", choices=["", "qfq", "hfq"], help="复权方式")
+    parser.add_argument("--cache", default=str(ROOT / "data" / "market_data.sqlite"), help="SQLite 缓存文件路径")
+    parser.add_argument("--refresh", action="store_true", help="忽略缓存并重新请求真实数据")
     args = parser.parse_args()
 
-    data = fetch_a_share_history(
-        symbol=args.symbol,
-        start_date=args.start,
-        end_date=args.end,
-        config=DataSourceConfig(source=args.source, adjust=args.adjust),
-    )
+    config = DataSourceConfig(source=args.source, adjust=args.adjust)
+    if args.cache:
+        data = get_or_fetch_a_share_history(
+            symbol=args.symbol,
+            start_date=args.start,
+            end_date=args.end,
+            cache_path=args.cache,
+            config=config,
+            refresh=args.refresh,
+        )
+    else:
+        data = fetch_a_share_history(symbol=args.symbol, start_date=args.start, end_date=args.end, config=config)
     signal = moving_average_signal(data, fast_window=10, slow_window=30)
     result = run_backtest(data, signal, BacktestConfig(initial_cash=100_000))
 
     print("真实 A 股数据回测演示")
     print(f"请求数据源: {args.source}")
     print(f"实际数据源: {data.attrs.get('source', args.source)}")
+    print(f"缓存状态: {data.attrs.get('cache_status', 'disabled')}")
     print(f"股票代码: {args.symbol}")
     print(f"日期范围: {data['date'].min().date()} ~ {data['date'].max().date()}")
     print(f"交易日数量: {len(data)}")

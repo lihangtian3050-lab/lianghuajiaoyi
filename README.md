@@ -40,6 +40,12 @@ python -m unittest discover -s tests
 python scripts\run_real_data_demo.py --symbol 000001 --start 20240101 --end 20251231
 ```
 
+默认会把真实行情缓存到 `data/market_data.sqlite`，再次运行相同参数会优先读取本地缓存。需要强制刷新时：
+
+```powershell
+python scripts\run_real_data_demo.py --symbol 000001 --start 20240101 --end 20251231 --refresh
+```
+
 也可以切换到新浪或腾讯适配器：
 
 ```powershell
@@ -56,7 +62,6 @@ python scripts\run_real_data_demo.py --symbol 000001 --source akshare-tencent
 
 ## 下一步
 
-1. 增加本地数据缓存，推荐 SQLite 或 DuckDB。
-2. 增加多数据源交叉校验，比如同一股票同一日期的 OHLC 差异检查。
-3. 扩展手续费、滑点、涨跌停、停牌处理。
-4. 做策略报告可视化。
+1. 增加多数据源交叉校验，比如同一股票同一日期的 OHLC 差异检查。
+2. 扩展手续费、滑点、涨跌停、停牌处理。
+3. 做策略报告可视化。
