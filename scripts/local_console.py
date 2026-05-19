@@ -13,8 +13,8 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from quant_trading.report_workflow import generate_html_report
 from quant_trading.research_log import append_research_log, steps_to_dicts
-from quant_trading.screener import screen_market
-from quant_trading.screener_report import render_screener_html
+from quant_trading.screener import analyze_stock, screen_market
+from quant_trading.screener_report import render_screener_html, render_stock_analysis_html
 
 
 INDEX_HTML = """<!doctype html>
@@ -29,15 +29,16 @@ INDEX_HTML = """<!doctype html>
     body { margin:0; font-family:"Microsoft YaHei","Segoe UI",Arial,sans-serif; background:var(--bg); color:var(--ink); }
     header { background:#fff; border-bottom:1px solid var(--line); padding:26px 32px; }
     h1 { margin:0 0 8px; font-size:28px; letter-spacing:0; }
-    h2 { margin:0 0 12px; font-size:18px; }
-    p { margin:0; color:var(--muted); }
+    h2 { margin:0 0 12px; font-size:18px; letter-spacing:0; }
+    p { margin:0; color:var(--muted); line-height:1.7; }
     main { max-width:1040px; margin:0 auto; padding:24px; }
     .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin-bottom:16px; }
     form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
     label { display:block; font-size:13px; color:var(--muted); margin-bottom:6px; }
     input, select { width:100%; height:40px; border:1px solid var(--line); border-radius:6px; padding:8px 10px; font-size:15px; background:#fff; }
     .full { grid-column:1 / -1; }
-    button, .button { display:inline-flex; align-items:center; justify-content:center; height:42px; border:0; border-radius:6px; background:var(--blue); color:#fff; font-size:15px; font-weight:700; cursor:pointer; text-decoration:none; padding:0 14px; }
+    button, .button { display:inline-flex; align-items:center; justify-content:center; min-height:42px; border:0; border-radius:6px; background:var(--blue); color:#fff; font-size:15px; font-weight:700; cursor:pointer; text-decoration:none; padding:0 14px; }
+    .button.secondary { background:#fff; color:var(--blue); border:1px solid var(--line); }
     .quick { display:flex; gap:10px; flex-wrap:wrap; }
     .note { margin-top:14px; color:var(--muted); line-height:1.7; }
     @media (max-width: 720px) { form { grid-template-columns:1fr; } header { padding:22px 18px; } main { padding:14px; } }
@@ -52,15 +53,22 @@ INDEX_HTML = """<!doctype html>
     <section class="panel">
       <h2>实时盯盘选股</h2>
       <div class="quick">
-        <a class="button" href="/watch?strategy=momentum">动量策略</a>
-        <a class="button" href="/watch?strategy=breakout">突破策略</a>
-        <a class="button" href="/watch?strategy=reversal">反转观察</a>
-        <a class="button" href="/watch?strategy=overnight_yang">一夜持股观察</a>
+        <a class="button secondary" href="/watch?strategy=momentum">动量策略</a>
+        <a class="button secondary" href="/watch?strategy=breakout">突破策略</a>
+        <a class="button secondary" href="/watch?strategy=reversal">反转观察</a>
+        <a class="button secondary" href="/watch?strategy=overnight_yang">一夜持股观察</a>
       </div>
-      <div class="note">盯盘页会展示热门板块、策略候选、推荐理由、新闻佐证、情绪标签和人工核验链接。“一夜持股观察”只做公开规则的候选过滤，不代表买入建议。</div>
+      <div class="note">盯盘页展示热门板块、策略候选、推荐理由、新闻佐证、情绪标签、研究流程和人工核验链接。</div>
     </section>
     <section class="panel">
-      <h2>单票研究报告</h2>
+      <h2>单票分析</h2>
+      <form method="get" action="/stock">
+        <div><label>股票代码</label><input name="symbol" value="000001" required></div>
+        <div class="full"><button type="submit">分析这只股票</button></div>
+      </form>
+    </section>
+    <section class="panel">
+      <h2>单票回测报告</h2>
       <form method="post" action="/generate">
         <div><label>股票代码</label><input name="symbol" value="000001" required></div>
         <div><label>资金档位</label><select name="capital_profile"><option value="small-2000">small-2000</option><option value="standard">standard</option></select></div>
@@ -102,6 +110,23 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 },
             )
             self._send_html(render_screener_html(result, refresh_seconds=refresh_seconds))
+            return
+        if parsed.path == "/stock":
+            params = parse_qs(parsed.query)
+            symbol = _value(params, "symbol", "000001")
+            result = analyze_stock(symbol=symbol, news_limit=5, quote_timeout=8)
+            append_research_log(
+                ROOT / "reports" / "research_log.jsonl",
+                "stock",
+                {
+                    "symbol": result.symbol,
+                    "status": result.status,
+                    "message": result.message,
+                    "strategy_match_count": len(result.strategy_matches),
+                    "steps": steps_to_dicts(result.research_steps),
+                },
+            )
+            self._send_html(render_stock_analysis_html(result))
             return
         if parsed.path == "/report":
             report_path = ROOT / "reports" / "dashboard.html"

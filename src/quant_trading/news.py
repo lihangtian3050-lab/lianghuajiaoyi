@@ -34,8 +34,18 @@ def fetch_stock_news(symbol: str, limit: int = 5) -> NewsCheck:
         raw = ak.stock_news_em(symbol=code)
         items = _normalize_news(raw).items[:limit]
         if not items:
-            return NewsCheck(items=[], status="empty", message="新闻接口未返回可展示内容，请打开核验链接人工确认。", verification_links=links)
-        return NewsCheck(items=items, status="ok", message="已从东方财富个股新闻接口获取新闻，仍建议人工打开链接核验原文。", verification_links=links)
+            return NewsCheck(
+                items=[],
+                status="empty",
+                message="新闻接口未返回可展示内容，请打开核验链接人工确认。",
+                verification_links=links,
+            )
+        return NewsCheck(
+            items=items,
+            status="ok",
+            message="已从东方财富个股新闻接口获取新闻，仍建议人工打开链接核验原文。",
+            verification_links=links,
+        )
     except Exception as exc:
         return NewsCheck(
             items=[],

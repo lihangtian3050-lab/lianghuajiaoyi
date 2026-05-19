@@ -47,6 +47,25 @@ class ScreenResult:
     research_steps: list[ResearchStep]
 
 
+@dataclass(frozen=True)
+class StockAnalysis:
+    symbol: str
+    name: str
+    price: float
+    pct_change: float
+    turnover_rate: float
+    volume_ratio: float
+    amount: float
+    strategy_matches: list[Candidate]
+    news: NewsCheck
+    sentiment_label: str
+    sentiment_score: int
+    checklist: list[str]
+    status: str
+    message: str
+    research_steps: list[ResearchStep]
+
+
 DEFAULT_WATCHLIST = {
     "000001": "平安银行",
     "300750": "宁德时代",
@@ -54,6 +73,8 @@ DEFAULT_WATCHLIST = {
     "300059": "东方财富",
     "600030": "中信证券",
 }
+
+STRATEGIES = ("momentum", "breakout", "reversal", "overnight_yang")
 
 
 def screen_market(strategy: str = "momentum", limit: int = 10, news_limit: int = 3, quote_timeout: int = 8) -> ScreenResult:
@@ -94,21 +115,7 @@ def screen_market(strategy: str = "momentum", limit: int = 10, news_limit: int =
         if candidate is None:
             continue
         if fallback_message:
-            candidate = Candidate(
-                code=candidate.code,
-                name=candidate.name,
-                price=candidate.price,
-                pct_change=candidate.pct_change,
-                turnover_rate=candidate.turnover_rate,
-                volume_ratio=candidate.volume_ratio,
-                amount=candidate.amount,
-                strategy=candidate.strategy,
-                score=candidate.score,
-                reasons=["实时行情失败，以下为降级候选，必须刷新确认。", *candidate.reasons],
-                sentiment_label=candidate.sentiment_label,
-                sentiment_score=candidate.sentiment_score,
-                news=candidate.news,
-            )
+            candidate = _with_extra_reason(candidate, "实时行情失败，以下为降级候选，必须刷新确认。")
         candidates.append(candidate)
     candidates = sorted(candidates, key=lambda item: item.score, reverse=True)[:limit]
     steps.append(ResearchStep("候选筛选", "ok" if candidates else "warn", f"策略筛出 {len(candidates)} 个候选。"))
@@ -116,38 +123,80 @@ def screen_market(strategy: str = "momentum", limit: int = 10, news_limit: int =
     enriched = []
     for candidate in candidates:
         if fallback_message:
-            news = NewsCheck(
-                items=[],
-                status="fallback",
-                message="降级模式不自动抓取新闻，请打开核验链接确认最新消息。",
-                verification_links=[
-                    ("东方财富新闻搜索", f"https://so.eastmoney.com/news/s?keyword={candidate.code}"),
-                    ("百度股市通搜索", f"https://www.baidu.com/s?wd={candidate.code}%20股票%20新闻"),
-                ],
-            )
+            news = _manual_news_links(candidate.code)
         else:
             news = fetch_stock_news(candidate.code, limit=news_limit)
         sentiment_score, sentiment_label = score_news_sentiment(news)
-        enriched.append(
-            Candidate(
-                code=candidate.code,
-                name=candidate.name,
-                price=candidate.price,
-                pct_change=candidate.pct_change,
-                turnover_rate=candidate.turnover_rate,
-                volume_ratio=candidate.volume_ratio,
-                amount=candidate.amount,
-                strategy=candidate.strategy,
-                score=candidate.score + sentiment_score * 0.2,
-                reasons=candidate.reasons,
-                sentiment_label=sentiment_label,
-                sentiment_score=sentiment_score,
-                news=news,
-            )
-        )
+        enriched.append(_with_news(candidate, news, sentiment_score, sentiment_label))
     steps.append(ResearchStep("新闻与情绪", "ok", f"完成 {len(enriched)} 个候选的新闻核验入口和情绪标签。"))
     status = "fallback" if fallback_message else "ok"
     return ScreenResult(strategy, enriched, hot_boards, status, fallback_message or "实时扫描完成。", steps)
+
+
+def analyze_stock(symbol: str, news_limit: int = 5, quote_timeout: int = 8) -> StockAnalysis:
+    code = _strip_market_prefix(symbol)
+    steps = [ResearchStep("初始化", "ok", f"分析股票 {code}。")]
+    fallback_message = ""
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(fetch_realtime_quotes)
+            try:
+                quotes = future.result(timeout=quote_timeout)
+            except TimeoutError as exc:
+                future.cancel()
+                raise TimeoutError(f"实时行情接口超过 {quote_timeout} 秒未返回") from exc
+        steps.append(ResearchStep("实时行情", "ok", f"获取到 {len(quotes)} 条实时行情。"))
+    except Exception as exc:
+        fallback_message = f"实时行情获取失败：{exc}；使用降级分析框架。"
+        quotes = fetch_fallback_quotes({code: DEFAULT_WATCHLIST.get(code, code)})
+        steps.append(ResearchStep("实时行情", "warn", fallback_message))
+
+    row = _find_quote_row(quotes, code)
+    if row is None:
+        row = pd.Series({"code": code, "name": DEFAULT_WATCHLIST.get(code, code), "price": 0.0, "pct_change": 0.0, "amount": 0.0, "turnover_rate": 0.0, "volume_ratio": 0.0})
+        fallback_message = fallback_message or "实时行情中未找到该股票，已生成待核验分析框架。"
+        steps.append(ResearchStep("股票定位", "warn", "未找到实时行，展示待人工补充的核验框架。"))
+    else:
+        steps.append(ResearchStep("股票定位", "ok", f"找到 {row.get('name', code)} 的行情快照。"))
+
+    matches = []
+    for strategy in STRATEGIES:
+        candidate = _evaluate_candidate(row, strategy)
+        if candidate is not None:
+            if fallback_message:
+                candidate = _with_extra_reason(candidate, "行情为降级或待确认，不能直接作为买入依据。")
+            matches.append(candidate)
+    steps.append(ResearchStep("策略匹配", "ok" if matches else "warn", f"匹配到 {len(matches)} 个策略观察条件。"))
+
+    news = fetch_stock_news(code, limit=news_limit)
+    sentiment_score, sentiment_label = score_news_sentiment(news)
+    steps.append(ResearchStep("新闻与情绪", news.status, news.message))
+
+    checklist = [
+        "核验实时价格、涨跌幅、成交额和量比是否与券商软件一致。",
+        "打开新闻原文，确认是否为当天重大公告、监管风险或市场传闻。",
+        "确认所属板块是否处于当日热点，而不是单票孤立异动。",
+        "若用于隔夜观察，必须在尾盘复核分时均线、盘口承接和次日卖出纪律。",
+        "资金决策必须由人工确认；系统只输出研究候选和风险提示。",
+    ]
+    status = "fallback" if fallback_message else "ok"
+    return StockAnalysis(
+        symbol=code,
+        name=str(row.get("name", DEFAULT_WATCHLIST.get(code, code))),
+        price=_number(row.get("price", 0.0)),
+        pct_change=_number(row.get("pct_change", 0.0)),
+        turnover_rate=_number(row.get("turnover_rate", 0.0)),
+        volume_ratio=_number(row.get("volume_ratio", 0.0)),
+        amount=_number(row.get("amount", 0.0)),
+        strategy_matches=matches,
+        news=news,
+        sentiment_label=sentiment_label,
+        sentiment_score=sentiment_score,
+        checklist=checklist,
+        status=status,
+        message=fallback_message or "单票分析完成。",
+        research_steps=steps,
+    )
 
 
 def fetch_realtime_quotes() -> pd.DataFrame:
@@ -185,7 +234,7 @@ def fetch_fallback_quotes(watchlist: dict[str, str] | None = None) -> pd.DataFra
         pct_change = 2.2 + index * 0.25
         return_60d = 18.0 + index * 1.5
         return_ytd = 5.0 + index
-        if index == len(watchlist) - 1:
+        if index == len(watchlist) - 1 and len(watchlist) > 1:
             pct_change = -2.5
             return_ytd = -18.0
         rows.append(
@@ -282,6 +331,69 @@ def _evaluate_candidate(row: pd.Series, strategy: str) -> Candidate | None:
         raise ValueError(f"未知策略: {strategy}")
 
     return Candidate(code, name, price, pct, turnover, volume_ratio, amount, strategy, score, reasons, "待核验", 0, NewsCheck([], "empty", "尚未核验新闻。", []))
+
+
+def _find_quote_row(quotes: pd.DataFrame, code: str) -> pd.Series | None:
+    if "code" not in quotes.columns:
+        return None
+    rows = quotes[quotes["code"].astype(str).str.zfill(6) == code]
+    if rows.empty:
+        return None
+    return rows.iloc[0]
+
+
+def _manual_news_links(code: str) -> NewsCheck:
+    return NewsCheck(
+        items=[],
+        status="fallback",
+        message="降级模式不自动抓取新闻，请打开核验链接确认最新消息。",
+        verification_links=[
+            ("东方财富新闻搜索", f"https://so.eastmoney.com/news/s?keyword={code}"),
+            ("百度股市通搜索", f"https://www.baidu.com/s?wd={code}%20股票%20新闻"),
+        ],
+    )
+
+
+def _with_extra_reason(candidate: Candidate, reason: str) -> Candidate:
+    return Candidate(
+        candidate.code,
+        candidate.name,
+        candidate.price,
+        candidate.pct_change,
+        candidate.turnover_rate,
+        candidate.volume_ratio,
+        candidate.amount,
+        candidate.strategy,
+        candidate.score,
+        [reason, *candidate.reasons],
+        candidate.sentiment_label,
+        candidate.sentiment_score,
+        candidate.news,
+    )
+
+
+def _with_news(candidate: Candidate, news: NewsCheck, sentiment_score: int, sentiment_label: str) -> Candidate:
+    return Candidate(
+        candidate.code,
+        candidate.name,
+        candidate.price,
+        candidate.pct_change,
+        candidate.turnover_rate,
+        candidate.volume_ratio,
+        candidate.amount,
+        candidate.strategy,
+        candidate.score + sentiment_score * 0.2,
+        candidate.reasons,
+        sentiment_label,
+        sentiment_score,
+        news,
+    )
+
+
+def _strip_market_prefix(symbol: str) -> str:
+    normalized = symbol.lower().strip()
+    normalized = re.sub(r"^(sh|sz|bj)", "", normalized)
+    return normalized.zfill(6) if normalized.isdigit() else normalized
 
 
 def _number(value) -> float:

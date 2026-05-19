@@ -7,7 +7,7 @@ import pandas as pd
 
 from tests import context  # noqa: F401
 from quant_trading.news import NewsCheck, NewsItem
-from quant_trading.screener import fetch_hot_boards, fetch_realtime_quotes, screen_market, score_news_sentiment
+from quant_trading.screener import analyze_stock, fetch_hot_boards, fetch_realtime_quotes, screen_market, score_news_sentiment
 
 
 class ScreenerTests(unittest.TestCase):
@@ -114,6 +114,32 @@ class ScreenerTests(unittest.TestCase):
         self.assertEqual(len(result.candidates), 1)
         self.assertEqual(result.candidates[0].code, "000001")
         self.assertIn("杨永兴风格隔夜观察", result.candidates[0].reasons[0])
+
+    def test_analyze_stock_returns_strategy_matches(self):
+        quotes = pd.DataFrame(
+            {
+                "code": ["000001"],
+                "name": ["平安银行"],
+                "price": [11.0],
+                "pct_change": [2.2],
+                "amount": [300_000_000],
+                "market_cap": [15_000_000_000],
+                "float_market_cap": [12_000_000_000],
+                "turnover_rate": [6.5],
+                "volume_ratio": [1.8],
+                "return_60d": [18.0],
+                "return_ytd": [3.0],
+            }
+        )
+        news = NewsCheck(items=[], status="empty", message="待核验", verification_links=[])
+
+        with patch("quant_trading.screener.fetch_realtime_quotes", return_value=quotes), patch("quant_trading.screener.fetch_stock_news", return_value=news):
+            result = analyze_stock("000001", quote_timeout=5)
+
+        self.assertEqual(result.symbol, "000001")
+        self.assertEqual(result.name, "平安银行")
+        self.assertGreaterEqual(len(result.strategy_matches), 1)
+        self.assertTrue(result.checklist)
 
     def test_score_news_sentiment_negative(self):
         news = NewsCheck(
