@@ -24,48 +24,77 @@ INDEX_HTML = """<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>量化交易本地控制台</title>
   <style>
-    :root { --ink:#17202a; --muted:#64748b; --line:#d8dee9; --bg:#f4f7fb; --panel:#fff; --blue:#2563eb; }
+    :root {
+      --ink:#17202a; --muted:#64748b; --line:#d8dee9; --bg:#f4f7fb; --panel:#fff;
+      --blue:#2563eb; --blue-soft:#edf4ff; --green:#16803c; --amber:#b45309; --graphite:#111827;
+      --shadow:0 10px 28px rgba(15,23,42,.07);
+    }
     * { box-sizing: border-box; }
-    body { margin:0; font-family:"Microsoft YaHei","Segoe UI",Arial,sans-serif; background:var(--bg); color:var(--ink); }
-    header { background:#fff; border-bottom:1px solid var(--line); padding:26px 32px; }
-    h1 { margin:0 0 8px; font-size:28px; letter-spacing:0; }
+    body {
+      margin:0; font-family:"Microsoft YaHei","Segoe UI",Arial,sans-serif; background:
+      linear-gradient(180deg,#f8fbff 0,#f4f7fb 38%,#eef3f8 100%); color:var(--ink);
+    }
+    header { background:#fff; border-bottom:1px solid var(--line); padding:22px 32px; position:sticky; top:0; z-index:4; }
+    .bar { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; flex-wrap:wrap; }
+    .eyebrow { color:var(--blue); font-size:13px; font-weight:700; margin-bottom:6px; }
+    h1 { margin:0 0 8px; font-size:30px; letter-spacing:0; }
     h2 { margin:0 0 12px; font-size:18px; letter-spacing:0; }
     p { margin:0; color:var(--muted); line-height:1.7; }
-    main { max-width:1040px; margin:0 auto; padding:24px; }
-    .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin-bottom:16px; }
+    main { max-width:1160px; margin:0 auto; padding:22px; }
+    .status { display:flex; gap:8px; align-items:center; color:var(--muted); font-size:13px; }
+    .dot { width:8px; height:8px; border-radius:50%; background:var(--green); box-shadow:0 0 0 4px #e7f8ee; }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin-bottom:16px; box-shadow:var(--shadow); }
+    .workspace { display:grid; grid-template-columns:1.05fr .95fr; gap:16px; align-items:start; }
     form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
     label { display:block; font-size:13px; color:var(--muted); margin-bottom:6px; }
     input, select { width:100%; height:40px; border:1px solid var(--line); border-radius:6px; padding:8px 10px; font-size:15px; background:#fff; }
     .full { grid-column:1 / -1; }
-    button, .button { display:inline-flex; align-items:center; justify-content:center; min-height:42px; border:0; border-radius:6px; background:var(--blue); color:#fff; font-size:15px; font-weight:700; cursor:pointer; text-decoration:none; padding:0 14px; }
+    button, .button { display:inline-flex; align-items:center; justify-content:center; min-height:42px; border:0; border-radius:6px; background:var(--graphite); color:#fff; font-size:15px; font-weight:700; cursor:pointer; text-decoration:none; padding:0 14px; }
     .button.secondary { background:#fff; color:var(--blue); border:1px solid var(--line); }
+    .button.primary { background:var(--blue); }
     .quick { display:flex; gap:10px; flex-wrap:wrap; }
     .note { margin-top:14px; color:var(--muted); line-height:1.7; }
-    @media (max-width: 720px) { form { grid-template-columns:1fr; } header { padding:22px 18px; } main { padding:14px; } }
+    .tiles { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-top:16px; }
+    .tile { border:1px solid var(--line); border-radius:8px; padding:12px; background:#fbfdff; }
+    .tile span { color:var(--muted); font-size:12px; display:block; margin-bottom:4px; }
+    .tile strong { font-size:18px; }
+    @media (max-width: 860px) { .workspace, form, .tiles { grid-template-columns:1fr; } header { padding:20px 16px; } main { padding:14px; } }
   </style>
 </head>
 <body>
   <header>
-    <h1>量化交易本地控制台</h1>
-    <p>研究、回测、选股、新闻核验和纸面交易辅助。不自动连接券商，不自动下单。</p>
+    <div class="bar">
+      <div>
+        <div class="eyebrow">A 股研究工作台</div>
+        <h1>量化交易本地控制台</h1>
+        <p>研究、回测、选股、新闻核验和纸面交易辅助。不自动连接券商，不自动下单。</p>
+      </div>
+      <div class="status"><span class="dot"></span> 本地服务运行中</div>
+    </div>
   </header>
   <main>
-    <section class="panel">
-      <h2>实时盯盘选股</h2>
-      <div class="quick">
-        <a class="button secondary" href="/watch?strategy=momentum">动量策略</a>
-        <a class="button secondary" href="/watch?strategy=breakout">突破策略</a>
-        <a class="button secondary" href="/watch?strategy=reversal">反转观察</a>
-        <a class="button secondary" href="/watch?strategy=overnight_yang">一夜持股观察</a>
+    <section class="workspace">
+      <div class="panel">
+        <h2>实时盯盘选股</h2>
+        <div class="quick">
+          <a class="button primary" href="/watch?strategy=overnight_yang">一夜持股观察</a>
+          <a class="button secondary" href="/watch?strategy=momentum">动量策略</a>
+          <a class="button secondary" href="/watch?strategy=breakout">突破策略</a>
+          <a class="button secondary" href="/watch?strategy=reversal">反转观察</a>
+        </div>
+        <div class="tiles">
+          <div class="tile"><span>流程</span><strong>候选-新闻-核验</strong></div>
+          <div class="tile"><span>风险</span><strong>人工确认</strong></div>
+          <div class="tile"><span>资金</span><strong>小额优先</strong></div>
+        </div>
       </div>
-      <div class="note">盯盘页展示热门板块、策略候选、推荐理由、新闻佐证、情绪标签、研究流程和人工核验链接。</div>
-    </section>
-    <section class="panel">
-      <h2>单票分析</h2>
-      <form method="get" action="/stock">
-        <div><label>股票代码</label><input name="symbol" value="000001" required></div>
-        <div class="full"><button type="submit">分析这只股票</button></div>
-      </form>
+      <div class="panel">
+        <h2>单票分析</h2>
+        <form method="get" action="/stock">
+          <div><label>股票代码</label><input name="symbol" value="000001" required></div>
+          <div class="full"><button type="submit">分析这只股票</button></div>
+        </form>
+      </div>
     </section>
     <section class="panel">
       <h2>单票回测报告</h2>
