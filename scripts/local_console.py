@@ -3,7 +3,7 @@ from __future__ import annotations
 from argparse import ArgumentParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlparse
 import html
 import sys
 import webbrowser
@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from quant_trading.report_workflow import generate_html_report
+from quant_trading.screener import screen_market
+from quant_trading.screener_report import render_screener_html
 
 
 INDEX_HTML = """<!doctype html>
@@ -26,37 +28,49 @@ INDEX_HTML = """<!doctype html>
     body { margin:0; font-family:"Microsoft YaHei","Segoe UI",Arial,sans-serif; background:var(--bg); color:var(--ink); }
     header { background:#fff; border-bottom:1px solid var(--line); padding:26px 32px; }
     h1 { margin:0 0 8px; font-size:28px; letter-spacing:0; }
+    h2 { margin:0 0 12px; font-size:18px; }
     p { margin:0; color:var(--muted); }
-    main { max-width:960px; margin:0 auto; padding:24px; }
-    form { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+    main { max-width:1040px; margin:0 auto; padding:24px; }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin-bottom:16px; }
+    form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
     label { display:block; font-size:13px; color:var(--muted); margin-bottom:6px; }
     input, select { width:100%; height:40px; border:1px solid var(--line); border-radius:6px; padding:8px 10px; font-size:15px; background:#fff; }
     .full { grid-column:1 / -1; }
-    button { height:42px; border:0; border-radius:6px; background:var(--blue); color:#fff; font-size:15px; font-weight:700; cursor:pointer; }
-    .note { margin-top:14px; padding:14px; border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--muted); line-height:1.7; }
+    button, .button { display:inline-flex; align-items:center; justify-content:center; height:42px; border:0; border-radius:6px; background:var(--blue); color:#fff; font-size:15px; font-weight:700; cursor:pointer; text-decoration:none; padding:0 14px; }
+    .quick { display:flex; gap:10px; flex-wrap:wrap; }
+    .note { margin-top:14px; color:var(--muted); line-height:1.7; }
     @media (max-width: 720px) { form { grid-template-columns:1fr; } header { padding:22px 18px; } main { padding:14px; } }
   </style>
 </head>
 <body>
   <header>
     <h1>量化交易本地控制台</h1>
-    <p>输入参数后生成本地 HTML 报告。系统只做研究、纸面交易和人工确认，不会自动连接券商下单。</p>
+    <p>研究、回测、选股、新闻核验和纸面交易辅助。不自动连接券商，不自动下单。</p>
   </header>
   <main>
-    <form method="post" action="/generate">
-      <div><label>股票代码</label><input name="symbol" value="000001" required></div>
-      <div><label>资金档位</label><select name="capital_profile"><option value="small-2000">small-2000</option><option value="standard">standard</option></select></div>
-      <div><label>开始日期</label><input name="start" value="20240101" required></div>
-      <div><label>结束日期</label><input name="end" value="20251231" required></div>
-      <div><label>数据源</label><select name="source"><option value="auto">auto</option><option value="akshare-sina">akshare-sina</option><option value="akshare-tencent">akshare-tencent</option><option value="akshare-eastmoney">akshare-eastmoney</option></select></div>
-      <div><label>复权方式</label><select name="adjust"><option value="qfq">qfq</option><option value="hfq">hfq</option><option value="">不复权</option></select></div>
-      <div><label>当前持仓股数</label><input name="current_position" value="0" inputmode="numeric"></div>
-      <div><label>现金覆盖，可留空</label><input name="cash" value="" inputmode="decimal"></div>
-      <div class="full"><button type="submit">生成 HTML 报告</button></div>
-    </form>
-    <div class="note">
-      生成的报告会保存到 <code>reports/dashboard.html</code>。如果报告提示有候选订单，也仍然需要人工确认。
-    </div>
+    <section class="panel">
+      <h2>实时盯盘选股</h2>
+      <div class="quick">
+        <a class="button" href="/watch?strategy=momentum">动量策略</a>
+        <a class="button" href="/watch?strategy=breakout">突破策略</a>
+        <a class="button" href="/watch?strategy=reversal">反转观察</a>
+      </div>
+      <div class="note">盯盘页会展示热门板块、策略候选、推荐理由、新闻佐证、情绪标签和人工核验链接。</div>
+    </section>
+    <section class="panel">
+      <h2>单票研究报告</h2>
+      <form method="post" action="/generate">
+        <div><label>股票代码</label><input name="symbol" value="000001" required></div>
+        <div><label>资金档位</label><select name="capital_profile"><option value="small-2000">small-2000</option><option value="standard">standard</option></select></div>
+        <div><label>开始日期</label><input name="start" value="20240101" required></div>
+        <div><label>结束日期</label><input name="end" value="20251231" required></div>
+        <div><label>数据源</label><select name="source"><option value="auto">auto</option><option value="akshare-sina">akshare-sina</option><option value="akshare-tencent">akshare-tencent</option><option value="akshare-eastmoney">akshare-eastmoney</option></select></div>
+        <div><label>复权方式</label><select name="adjust"><option value="qfq">qfq</option><option value="hfq">hfq</option><option value="">不复权</option></select></div>
+        <div><label>当前持仓股数</label><input name="current_position" value="0" inputmode="numeric"></div>
+        <div><label>现金覆盖，可留空</label><input name="cash" value="" inputmode="decimal"></div>
+        <div class="full"><button type="submit">生成 HTML 报告</button></div>
+      </form>
+    </section>
   </main>
 </body>
 </html>
@@ -65,10 +79,18 @@ INDEX_HTML = """<!doctype html>
 
 class ConsoleHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
-        if self.path in ("/", "/index.html"):
+        parsed = urlparse(self.path)
+        if parsed.path in ("/", "/index.html"):
             self._send_html(INDEX_HTML)
             return
-        if self.path == "/report":
+        if parsed.path == "/watch":
+            params = parse_qs(parsed.query)
+            strategy = _value(params, "strategy", "momentum")
+            refresh_seconds = int(_value(params, "refresh", "60") or "60")
+            result = screen_market(strategy=strategy, limit=10, news_limit=3, quote_timeout=25)
+            self._send_html(render_screener_html(result, refresh_seconds=refresh_seconds))
+            return
+        if parsed.path == "/report":
             report_path = ROOT / "reports" / "dashboard.html"
             if not report_path.exists():
                 self._send_html(_message_page("报告还没有生成", "请先返回控制台生成报告。"), status=404)

@@ -149,6 +149,16 @@ python scripts\local_console.py --open
 控制台可以输入股票代码、日期、数据源、资金档位和当前持仓，点击按钮后生成 `reports/dashboard.html` 并在浏览器中展示。
 控制台生成的是研究报告，不是自动买卖指令；报告里的结论用于辅助人工判断，不构成投资建议。
 
+实时盯盘选股入口：
+
+```text
+http://127.0.0.1:8765/watch?strategy=momentum
+http://127.0.0.1:8765/watch?strategy=breakout
+http://127.0.0.1:8765/watch?strategy=reversal
+```
+
+盯盘页会展示热门板块、策略候选、候选理由、新闻佐证、情绪标签和人工核验链接。页面默认每 60 秒刷新一次。
+
 ## 下一步
 
 1. 扩展涨跌停、停牌、集合竞价等 A 股交易约束。
