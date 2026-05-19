@@ -1,7 +1,7 @@
 import unittest
 
 from tests import context  # noqa: F401
-from quant_trading.risk import RiskConfig, check_order_risk
+from quant_trading.risk import RiskConfig, check_order_risk, risk_config_for_profile
 from quant_trading.trading import BUY, SELL, Order, PaperBroker, build_target_order, round_down_to_lot
 
 
@@ -46,6 +46,13 @@ class TradingTests(unittest.TestCase):
 
     def test_round_down_to_lot(self):
         self.assertEqual(round_down_to_lot(999, 100), 900)
+
+    def test_small_2000_risk_profile(self):
+        cash, config = risk_config_for_profile("small-2000")
+
+        self.assertEqual(cash, 2_000.0)
+        self.assertEqual(config.max_order_value, 1_500.0)
+        self.assertEqual(config.min_cash_buffer, 300.0)
 
 
 if __name__ == "__main__":

@@ -21,6 +21,22 @@ class RiskDecision:
     reasons: list[str]
 
 
+def risk_config_for_profile(profile: str) -> tuple[float, RiskConfig]:
+    """Return default cash and risk limits for a named paper-trading profile."""
+    normalized = profile.lower()
+    if normalized == "standard":
+        return 100_000.0, RiskConfig()
+    if normalized == "small-2000":
+        return 2_000.0, RiskConfig(
+            max_order_value=1_500.0,
+            max_position_value=1_500.0,
+            max_position_pct=0.75,
+            min_cash_buffer=300.0,
+            lot_size=100,
+        )
+    raise ValueError(f"unknown risk profile: {profile}")
+
+
 def check_order_risk(
     order: Order,
     cash: float,

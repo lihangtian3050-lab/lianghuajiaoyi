@@ -84,6 +84,12 @@ python scripts\check_data_sources.py --symbol 600519 --sources akshare-sina aksh
 python scripts\paper_trade_signal.py --symbol 000001 --start 20240101 --end 20251231
 ```
 
+如果按 2000 元小资金账户做纸面跟踪：
+
+```powershell
+python scripts\paper_trade_signal.py --symbol 000001 --start 20240101 --end 20251231 --capital-profile small-2000
+```
+
 这个脚本不会连接券商，也不会真实下单。它会生成审计日志和人工确认订单文件：
 
 - `reports/audit_trail.csv`
