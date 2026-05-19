@@ -60,8 +60,23 @@ python scripts\run_real_data_demo.py --symbol 000001 --source akshare-tencent
 - `akshare-tencent`：可用作备用源，适合后续做交叉校验。
 - 回测默认使用前复权 `qfq`，可以通过 `--adjust hfq` 或 `--adjust ""` 修改。
 
+## 多数据源交叉校验
+
+比较同一只股票在多个数据源中的 OHLCV 数据：
+
+```powershell
+python scripts\check_data_sources.py --symbol 000001 --start 20240101 --end 20251231
+```
+
+默认比较新浪和腾讯，也可以手动指定：
+
+```powershell
+python scripts\check_data_sources.py --symbol 600519 --sources akshare-sina akshare-tencent
+```
+
+输出会包含每个数据源的请求状态、缓存命中情况、缺失日期数量和字段差异数量。价格差异默认容忍 `0.01`，成交量差异默认容忍 `0.1%`。
+
 ## 下一步
 
-1. 增加多数据源交叉校验，比如同一股票同一日期的 OHLC 差异检查。
-2. 扩展手续费、滑点、涨跌停、停牌处理。
-3. 做策略报告可视化。
+1. 扩展手续费、滑点、涨跌停、停牌处理。
+2. 做策略报告可视化。
