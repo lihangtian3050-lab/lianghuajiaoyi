@@ -142,6 +142,7 @@ def render_screener_html(result: ScreenResult, refresh_seconds: int = 60) -> str
           <h2>扫描摘要</h2>
           <div class="metric-list">
             <div class="metric"><span>数据状态</span><strong>{escape(_status_label(result.status))}</strong></div>
+            <div class="metric"><span>数据源</span><strong>{escape(_quote_source_label(result))}</strong></div>
             <div class="metric"><span>候选数量</span><strong>{len(result.candidates)}</strong></div>
             <div class="metric"><span>热门板块</span><strong>{len(result.hot_boards)}</strong></div>
             <div class="metric"><span>当前策略</span><strong>{escape(strategy_label)}</strong></div>
@@ -315,6 +316,16 @@ def _fallback_banner(result: ScreenResult) -> str:
     return f"""<div class="banner">
       当前不是完整实时数据：{escape(result.message)} 这些候选只用于研究演示和人工核验，不能直接作为买入依据。
     </div>"""
+
+
+def _quote_source_label(result: ScreenResult) -> str:
+    for step in result.research_steps:
+        marker = "通过 "
+        if step.stage == "实时行情" and marker in step.message:
+            return step.message.split(marker, 1)[1].split(" 获取到", 1)[0]
+    if result.status == "fallback":
+        return "降级候选池"
+    return "待确认"
 
 
 def _price_text(price: float) -> str:

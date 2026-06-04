@@ -31,7 +31,7 @@ class ScreenerReportTests(unittest.TestCase):
             ],
             status="ok",
             message="ok",
-            research_steps=[ResearchStep("测试", "ok", "流程记录")],
+            research_steps=[ResearchStep("实时行情", "ok", "通过 腾讯自选池 获取到 1 条实时行情。")],
         )
 
         html = render_screener_html(result, refresh_seconds=0)
@@ -40,6 +40,8 @@ class ScreenerReportTests(unittest.TestCase):
         self.assertIn("热门板块", html)
         self.assertIn("研究流程", html)
         self.assertIn("扫描摘要", html)
+        self.assertIn("数据源", html)
+        self.assertIn("腾讯自选池", html)
         self.assertIn('class="workbench"', html)
         self.assertIn("候选研究卡片", html)
         self.assertIn("/stock?symbol=000001", html)

@@ -3,6 +3,8 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from dataclasses import dataclass
 from importlib import import_module
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 import math
 import re
 
@@ -87,7 +89,12 @@ def screen_market(strategy: str = "momentum", limit: int = 10, news_limit: int =
     try:
         try:
             quotes = quotes_future.result(timeout=quote_timeout)
-            steps.append(ResearchStep("实时行情", "ok", f"获取到 {len(quotes)} 条实时行情。"))
+            source = quotes.attrs.get("source", "未知源")
+            errors = quotes.attrs.get("source_errors", [])
+            detail = f"通过 {source} 获取到 {len(quotes)} 条实时行情。"
+            if errors:
+                detail += " 备用前失败源：" + "；".join(errors[:2])
+            steps.append(ResearchStep("实时行情", "ok", detail))
         except TimeoutError as exc:
             quotes_future.cancel()
             raise TimeoutError(f"实时行情接口超过 {quote_timeout} 秒未返回") from exc
@@ -122,10 +129,7 @@ def screen_market(strategy: str = "momentum", limit: int = 10, news_limit: int =
 
     enriched = []
     for candidate in candidates:
-        if fallback_message:
-            news = _manual_news_links(candidate.code)
-        else:
-            news = fetch_stock_news(candidate.code, limit=news_limit)
+        news = _manual_news_links(candidate.code) if fallback_message else fetch_stock_news(candidate.code, limit=news_limit)
         sentiment_score, sentiment_label = score_news_sentiment(news)
         enriched.append(_with_news(candidate, news, sentiment_score, sentiment_label))
     steps.append(ResearchStep("新闻与情绪", "ok", f"完成 {len(enriched)} 个候选的新闻核验入口和情绪标签。"))
@@ -139,13 +143,13 @@ def analyze_stock(symbol: str, news_limit: int = 5, quote_timeout: int = 8) -> S
     fallback_message = ""
     try:
         with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(fetch_realtime_quotes)
+            future = executor.submit(fetch_realtime_quotes, {"watchlist": {code: DEFAULT_WATCHLIST.get(code, code)}})
             try:
                 quotes = future.result(timeout=quote_timeout)
             except TimeoutError as exc:
                 future.cancel()
                 raise TimeoutError(f"实时行情接口超过 {quote_timeout} 秒未返回") from exc
-        steps.append(ResearchStep("实时行情", "ok", f"获取到 {len(quotes)} 条实时行情。"))
+        steps.append(ResearchStep("实时行情", "ok", f"通过 {quotes.attrs.get('source', '未知源')} 获取到 {len(quotes)} 条行情。"))
     except Exception as exc:
         fallback_message = f"实时行情获取失败：{exc}；使用降级分析框架。"
         quotes = fetch_fallback_quotes({code: DEFAULT_WATCHLIST.get(code, code)})
@@ -199,7 +203,31 @@ def analyze_stock(symbol: str, news_limit: int = 5, quote_timeout: int = 8) -> S
     )
 
 
-def fetch_realtime_quotes() -> pd.DataFrame:
+def fetch_realtime_quotes(options: dict | None = None) -> pd.DataFrame:
+    options = options or {}
+    watchlist = options.get("watchlist") or DEFAULT_WATCHLIST
+    errors: list[str] = []
+    source_map = {
+        "tencent": ("腾讯自选池", lambda: _fetch_tencent_quotes(watchlist)),
+        "sina": ("新浪自选池", lambda: _fetch_sina_quotes(watchlist)),
+        "eastmoney": ("东方财富全市场", lambda: _fetch_eastmoney_quotes()),
+    }
+    source_order = options.get("sources") or ["tencent", "sina", "eastmoney"]
+    for source_key in source_order:
+        source_name, fetcher = source_map[source_key]
+        try:
+            frame = fetcher()
+            if frame.empty:
+                raise ValueError("返回为空")
+            frame.attrs["source"] = source_name
+            frame.attrs["source_errors"] = errors.copy()
+            return frame
+        except Exception as exc:
+            errors.append(f"{source_name}: {exc}")
+    raise RuntimeError("全部实时行情源失败；" + " | ".join(errors))
+
+
+def _fetch_eastmoney_quotes() -> pd.DataFrame:
     ak = import_module("akshare")
     raw = ak.stock_zh_a_spot_em()
     rename = {
@@ -220,11 +248,85 @@ def fetch_realtime_quotes() -> pd.DataFrame:
     missing = [column for column in required if column not in frame.columns]
     if missing:
         raise ValueError(f"实时行情缺少字段: {missing}")
+    return _normalize_quote_frame(frame)
+
+
+def _fetch_tencent_quotes(watchlist: dict[str, str]) -> pd.DataFrame:
+    symbols = ",".join(_with_market_prefix(code) for code in watchlist)
+    text = _read_url(f"http://qt.gtimg.cn/q={symbols}", encoding="gbk")
+    rows = []
+    for payload in re.findall(r'v_[a-z]{2}\d{6}="([^"]*)"', text):
+        parts = payload.split("~")
+        if len(parts) < 74:
+            continue
+        code = parts[2].strip()
+        prev_close = _number(parts[4])
+        price = _number(parts[3])
+        pct_change = _number(parts[32])
+        if pct_change == 0 and prev_close:
+            pct_change = (price - prev_close) / prev_close * 100
+        rows.append(
+            {
+                "code": code,
+                "name": parts[1].strip() or watchlist.get(code, code),
+                "price": price,
+                "pct_change": pct_change,
+                "amount": _number(parts[37]) * 10_000,
+                "turnover_rate": _number(parts[38]),
+                "volume_ratio": _number(parts[49]),
+                "market_cap": _number(parts[44]) * 100_000_000,
+                "float_market_cap": _number(parts[45]) * 100_000_000,
+                "return_60d": 0.0,
+                "return_ytd": _number(parts[62]),
+            }
+        )
+    return _normalize_quote_frame(pd.DataFrame(rows))
+
+
+def _fetch_sina_quotes(watchlist: dict[str, str]) -> pd.DataFrame:
+    symbols = ",".join(_with_market_prefix(code) for code in watchlist)
+    url = f"https://hq.sinajs.cn/list={quote(symbols, safe=',')}"
+    text = _read_url(url, encoding="gbk", headers={"Referer": "https://finance.sina.com.cn/"})
+    rows = []
+    for symbol, payload in re.findall(r'var hq_str_([a-z]{2}\d{6})="([^"]*)"', text):
+        parts = payload.split(",")
+        if len(parts) < 10 or not parts[0]:
+            continue
+        code = symbol[-6:]
+        prev_close = _number(parts[2])
+        price = _number(parts[3])
+        pct_change = (price - prev_close) / prev_close * 100 if prev_close else 0.0
+        rows.append(
+            {
+                "code": code,
+                "name": parts[0].strip() or watchlist.get(code, code),
+                "price": price,
+                "pct_change": pct_change,
+                "amount": _number(parts[9]),
+                "turnover_rate": 0.0,
+                "volume_ratio": 0.0,
+                "market_cap": 0.0,
+                "float_market_cap": 0.0,
+                "return_60d": 0.0,
+                "return_ytd": 0.0,
+            }
+        )
+    return _normalize_quote_frame(pd.DataFrame(rows))
+
+
+def _normalize_quote_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    required = ["code", "name", "price", "pct_change", "amount", "turnover_rate", "volume_ratio"]
+    for column in required:
+        if column not in frame.columns:
+            frame[column] = 0.0 if column not in ("code", "name") else ""
     for column in ["price", "pct_change", "amount", "market_cap", "float_market_cap", "turnover_rate", "volume_ratio", "return_60d", "return_ytd"]:
-        if column in frame.columns:
-            frame[column] = pd.to_numeric(frame[column], errors="coerce")
+        if column not in frame.columns:
+            frame[column] = 0.0
+        frame[column] = pd.to_numeric(frame[column], errors="coerce").fillna(0.0)
+    frame["code"] = frame["code"].astype(str).str.extract(r"(\d{6})", expand=False).fillna("")
+    frame["name"] = frame["name"].astype(str)
     frame = frame.dropna(subset=["price", "pct_change"])
-    return frame[frame["price"] > 0]
+    return frame[(frame["code"] != "") & (frame["price"] > 0)].reset_index(drop=True)
 
 
 def fetch_fallback_quotes(watchlist: dict[str, str] | None = None) -> pd.DataFrame:
@@ -252,7 +354,9 @@ def fetch_fallback_quotes(watchlist: dict[str, str] | None = None) -> pd.DataFra
                 "return_ytd": return_ytd,
             }
         )
-    return pd.DataFrame(rows)
+    frame = pd.DataFrame(rows)
+    frame.attrs["source"] = "降级候选池"
+    return frame
 
 
 def fetch_hot_boards(limit: int = 10) -> list[HotBoard]:
@@ -355,45 +459,36 @@ def _manual_news_links(code: str) -> NewsCheck:
 
 
 def _with_extra_reason(candidate: Candidate, reason: str) -> Candidate:
-    return Candidate(
-        candidate.code,
-        candidate.name,
-        candidate.price,
-        candidate.pct_change,
-        candidate.turnover_rate,
-        candidate.volume_ratio,
-        candidate.amount,
-        candidate.strategy,
-        candidate.score,
-        [reason, *candidate.reasons],
-        candidate.sentiment_label,
-        candidate.sentiment_score,
-        candidate.news,
-    )
+    return Candidate(candidate.code, candidate.name, candidate.price, candidate.pct_change, candidate.turnover_rate, candidate.volume_ratio, candidate.amount, candidate.strategy, candidate.score, [reason, *candidate.reasons], candidate.sentiment_label, candidate.sentiment_score, candidate.news)
 
 
 def _with_news(candidate: Candidate, news: NewsCheck, sentiment_score: int, sentiment_label: str) -> Candidate:
-    return Candidate(
-        candidate.code,
-        candidate.name,
-        candidate.price,
-        candidate.pct_change,
-        candidate.turnover_rate,
-        candidate.volume_ratio,
-        candidate.amount,
-        candidate.strategy,
-        candidate.score + sentiment_score * 0.2,
-        candidate.reasons,
-        sentiment_label,
-        sentiment_score,
-        news,
-    )
+    return Candidate(candidate.code, candidate.name, candidate.price, candidate.pct_change, candidate.turnover_rate, candidate.volume_ratio, candidate.amount, candidate.strategy, candidate.score + sentiment_score * 0.2, candidate.reasons, sentiment_label, sentiment_score, news)
+
+
+def _read_url(url: str, encoding: str = "utf-8", headers: dict[str, str] | None = None) -> str:
+    request_headers = {"User-Agent": "Mozilla/5.0"}
+    if headers:
+        request_headers.update(headers)
+    request = Request(url, headers=request_headers)
+    return urlopen(request, timeout=10).read().decode(encoding, errors="ignore")
 
 
 def _strip_market_prefix(symbol: str) -> str:
     normalized = symbol.lower().strip()
     normalized = re.sub(r"^(sh|sz|bj)", "", normalized)
     return normalized.zfill(6) if normalized.isdigit() else normalized
+
+
+def _with_market_prefix(symbol: str) -> str:
+    code = _strip_market_prefix(symbol)
+    if code.startswith(("5", "6", "9")):
+        return f"sh{code}"
+    if code.startswith(("0", "1", "2", "3")):
+        return f"sz{code}"
+    if code.startswith(("4", "8")):
+        return f"bj{code}"
+    raise ValueError(f"无法判断市场前缀: {symbol}")
 
 
 def _number(value) -> float:
