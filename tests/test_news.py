@@ -38,6 +38,25 @@ class NewsTests(unittest.TestCase):
         self.assertEqual(result.status, "error")
         self.assertTrue(result.verification_links)
 
+    def test_fetch_stock_news_handles_akshare_unicode_regex_bug(self):
+        def stock_news_em(symbol):
+            pd.Series(["a\\u3000b"]).str.replace(r"\u3000", "", regex=True)
+            return pd.DataFrame(
+                {
+                    "新闻标题": ["带空格清洗新闻"],
+                    "发布时间": ["2026-06-04 10:00:00"],
+                    "文章来源": ["东方财富"],
+                    "新闻链接": ["https://example.com/news"],
+                }
+            )
+
+        sys.modules["akshare"] = types.SimpleNamespace(stock_news_em=stock_news_em)
+
+        result = fetch_stock_news("000001")
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.items[0].title, "带空格清洗新闻")
+
 
 if __name__ == "__main__":
     unittest.main()

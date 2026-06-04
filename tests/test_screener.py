@@ -148,6 +148,33 @@ class ScreenerTests(unittest.TestCase):
         self.assertEqual(result.candidates[0].code, "000001")
         self.assertIn("杨永兴风格隔夜观察", result.candidates[0].reasons[0])
 
+    def test_screen_market_returns_observation_pool_when_strict_strategy_empty(self):
+        quotes = pd.DataFrame(
+            {
+                "code": ["000001", "300059"],
+                "name": ["平安银行", "东方财富"],
+                "price": [10.82, 18.74],
+                "pct_change": [-1.55, -0.90],
+                "amount": [943_330_000, 4_205_120_000],
+                "market_cap": [209_969_000_000, 250_000_000_000],
+                "float_market_cap": [209_972_000_000, 220_000_000_000],
+                "turnover_rate": [0.45, 1.68],
+                "volume_ratio": [0.88, 0.74],
+                "return_60d": [0.0, 0.0],
+                "return_ytd": [-5.17, -8.0],
+            }
+        )
+        quotes.attrs["source"] = "腾讯自选池"
+        news = NewsCheck(items=[NewsItem("测试新闻", "2026-06-04", "测试", "https://example.com")], status="ok", message="ok", verification_links=[])
+
+        with patch("quant_trading.screener.fetch_realtime_quotes", return_value=quotes), patch("quant_trading.screener.fetch_hot_boards", return_value=[]), patch("quant_trading.screener.fetch_stock_news", return_value=news):
+            result = screen_market("overnight_yang", limit=5, quote_timeout=5)
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(len(result.candidates), 2)
+        self.assertIn("实时观察池", result.candidates[0].reasons[0])
+        self.assertTrue(any(step.stage == "观察池" for step in result.research_steps))
+
     def test_analyze_stock_returns_strategy_matches(self):
         quotes = pd.DataFrame(
             {

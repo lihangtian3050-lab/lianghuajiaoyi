@@ -264,6 +264,9 @@ def _candidate_row(candidate) -> str:
 def _candidate_card(candidate) -> str:
     reasons = "".join(f"<li>{escape(reason)}</li>" for reason in candidate.reasons[:4])
     links = "".join(f'<li><a href="{escape(url)}" target="_blank" rel="noreferrer">{escape(label)}</a></li>' for label, url in candidate.news.verification_links[:2])
+    news_items = "".join(_news_item(item) for item in candidate.news.items[:2])
+    if not news_items:
+        news_items = f'<li class="muted">{escape(candidate.news.message)}</li>'
     pct_class = "pos" if candidate.pct_change >= 0 else "neg"
     return f"""<article class="card">
       <div class="card-head">
@@ -281,6 +284,9 @@ def _candidate_card(candidate) -> str:
       </div>
       <h3>推荐理由</h3>
       <ul>{reasons}</ul>
+      <h3>新闻情绪</h3>
+      <p class="muted">情绪：{escape(candidate.sentiment_label)}</p>
+      <ul>{news_items}</ul>
       <h3>核验入口</h3>
       <ul>{links or '<li class="muted">暂无核验链接。</li>'}</ul>
     </article>"""

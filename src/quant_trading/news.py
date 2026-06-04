@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import contextmanager
 from importlib import import_module
 import re
 
 import pandas as pd
+from pandas.core.strings.accessor import StringMethods
 
 
 @dataclass(frozen=True)
@@ -31,7 +33,8 @@ def fetch_stock_news(symbol: str, limit: int = 5) -> NewsCheck:
     ]
     try:
         ak = import_module("akshare")
-        raw = ak.stock_news_em(symbol=code)
+        with _akshare_news_string_replace_guard():
+            raw = ak.stock_news_em(symbol=code)
         items = _normalize_news(raw).items[:limit]
         if not items:
             return NewsCheck(
@@ -89,3 +92,19 @@ def _normalize_news(raw: pd.DataFrame) -> NewsCheck:
 def _strip_market_prefix(symbol: str) -> str:
     normalized = symbol.lower().strip()
     return re.sub(r"^(sh|sz|bj)", "", normalized)
+
+
+@contextmanager
+def _akshare_news_string_replace_guard():
+    original_replace = StringMethods.replace
+
+    def guarded_replace(self, pat, repl, n=-1, case=None, flags=0, regex=False):
+        if regex and pat in {r"\u3000", r"\r\n"}:
+            return original_replace(self, pat, repl, n=n, case=case, flags=flags, regex=False)
+        return original_replace(self, pat, repl, n=n, case=case, flags=flags, regex=regex)
+
+    StringMethods.replace = guarded_replace
+    try:
+        yield
+    finally:
+        StringMethods.replace = original_replace

@@ -47,6 +47,7 @@ class ScreenerReportTests(unittest.TestCase):
         self.assertIn("/stock?symbol=000001", html)
         self.assertIn("平安银行", html)
         self.assertIn("偏积极", html)
+        self.assertIn("新闻情绪", html)
         self.assertIn("一夜持股观察", html)
 
     def test_render_stock_analysis_html_contains_checklist(self):

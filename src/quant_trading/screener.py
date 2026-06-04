@@ -125,7 +125,11 @@ def screen_market(strategy: str = "momentum", limit: int = 10, news_limit: int =
             candidate = _with_extra_reason(candidate, "实时行情失败，以下为降级候选，必须刷新确认。")
         candidates.append(candidate)
     candidates = sorted(candidates, key=lambda item: item.score, reverse=True)[:limit]
-    steps.append(ResearchStep("候选筛选", "ok" if candidates else "warn", f"策略筛出 {len(candidates)} 个候选。"))
+    strict_count = len(candidates)
+    if not candidates and not fallback_message:
+        candidates = _build_observation_pool(quotes, strategy, limit)
+        steps.append(ResearchStep("观察池", "warn", f"严格策略未命中，展示 {len(candidates)} 个实时观察候选。"))
+    steps.append(ResearchStep("候选筛选", "ok" if strict_count else "warn", f"严格策略筛出 {strict_count} 个候选，当前展示 {len(candidates)} 个观察对象。"))
 
     enriched = []
     for candidate in candidates:
@@ -431,6 +435,73 @@ def _evaluate_candidate(row: pd.Series, strategy: str) -> Candidate | None:
             f"参考市值 {effective_cap/100_000_000:.2f} 亿，低于 200 亿",
             f"当日涨幅 {pct:.2f}%，需人工确认分时是否强于均线",
         ]
+    else:
+        raise ValueError(f"未知策略: {strategy}")
+
+    return Candidate(code, name, price, pct, turnover, volume_ratio, amount, strategy, score, reasons, "待核验", 0, NewsCheck([], "empty", "尚未核验新闻。", []))
+
+
+def _build_observation_pool(quotes: pd.DataFrame, strategy: str, limit: int) -> list[Candidate]:
+    observations = []
+    for _, row in quotes.iterrows():
+        candidate = _evaluate_observation_candidate(row, strategy)
+        if candidate is not None:
+            observations.append(candidate)
+    return sorted(observations, key=lambda item: item.score, reverse=True)[:limit]
+
+
+def _evaluate_observation_candidate(row: pd.Series, strategy: str) -> Candidate | None:
+    pct = _number(row.get("pct_change", 0.0))
+    turnover = _number(row.get("turnover_rate", 0.0))
+    volume_ratio = _number(row.get("volume_ratio", 0.0))
+    amount = _number(row.get("amount", 0.0))
+    market_cap = _number(row.get("market_cap", 0.0))
+    float_market_cap = _number(row.get("float_market_cap", 0.0))
+    return_60d = _number(row.get("return_60d", 0.0))
+    return_ytd = _number(row.get("return_ytd", 0.0))
+    code = str(row.get("code", ""))
+    name = str(row.get("name", ""))
+    price = _number(row.get("price", 0.0))
+    if not re.fullmatch(r"\d{6}", code) or name.startswith(("ST", "*ST")):
+        return None
+
+    if strategy == "momentum":
+        score = pct * 1.2 + min(volume_ratio, 5) + amount / 100_000_000 * 0.08
+        reasons = [
+            "实时观察池：未命中严格动量条件，先用于盯盘排序",
+            f"当日涨跌幅 {pct:.2f}%",
+            f"成交额 {amount/100_000_000:.2f} 亿",
+            f"量比 {volume_ratio:.2f}",
+        ]
+    elif strategy == "breakout":
+        score = return_60d * 0.4 + pct + min(volume_ratio, 5)
+        reasons = [
+            "实时观察池：未命中严格突破条件，先用于盯盘排序",
+            f"60 日涨跌幅 {return_60d:.2f}%",
+            f"当日涨跌幅 {pct:.2f}%",
+            f"量比 {volume_ratio:.2f}",
+        ]
+    elif strategy == "reversal":
+        score = abs(min(pct, 0)) + abs(min(return_ytd, 0)) * 0.2 + turnover * 0.15
+        reasons = [
+            "实时观察池：未命中严格反转条件，先用于盯盘排序",
+            f"当日涨跌幅 {pct:.2f}%",
+            f"年初至今 {return_ytd:.2f}%",
+            f"换手率 {turnover:.2f}%",
+        ]
+    elif strategy == "overnight_yang":
+        effective_cap = float_market_cap or market_cap
+        cap_score = max(0, 20_000_000_000 - effective_cap) / 2_000_000_000 if effective_cap else 0
+        turnover_score = max(0, 10 - abs(turnover - 7.5)) if turnover else 0
+        score = max(pct, -5) * 0.8 + volume_ratio * 2 + turnover_score + cap_score
+        reasons = [
+            "实时观察池：未命中严格一夜持股条件，先用于盯盘观察",
+            f"涨幅 {pct:.2f}%（严格条件需大于 1%）",
+            f"量比 {volume_ratio:.2f}（严格条件需大于 1）",
+            f"换手率 {turnover:.2f}%（严格条件需 5%-10%）",
+        ]
+        if effective_cap:
+            reasons.append(f"参考市值 {effective_cap/100_000_000:.2f} 亿（严格条件需低于 200 亿）")
     else:
         raise ValueError(f"未知策略: {strategy}")
 
