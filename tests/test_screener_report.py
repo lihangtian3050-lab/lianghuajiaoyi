@@ -39,7 +39,7 @@ class ScreenerReportTests(unittest.TestCase):
         self.assertIn("实时盯盘选股", html)
         self.assertIn("热门板块", html)
         self.assertIn("研究流程", html)
-        self.assertIn("扫描摘要", html)
+        self.assertIn("数据状态", html)
         self.assertIn("数据源", html)
         self.assertIn("腾讯自选池", html)
         self.assertIn('class="workbench"', html)

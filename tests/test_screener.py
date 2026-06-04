@@ -21,27 +21,16 @@ class ScreenerTests(unittest.TestCase):
         sys.modules.pop("akshare", None)
 
     def test_fetch_realtime_quotes_normalizes_eastmoney_columns(self):
-        sys.modules["akshare"] = types.SimpleNamespace(
-            stock_zh_a_spot_em=lambda: pd.DataFrame(
-                {
-                    "代码": ["000001"],
-                    "名称": ["平安银行"],
-                    "最新价": [11.0],
-                    "涨跌幅": [2.5],
-                    "成交额": [200_000_000],
-                    "总市值": [15_000_000_000],
-                    "流通市值": [12_000_000_000],
-                    "换手率": [2.0],
-                    "量比": [1.5],
-                    "60日涨跌幅": [20.0],
-                    "年初至今涨跌幅": [5.0],
-                }
-            )
+        payload = (
+            '{"data":{"diff":[{"f12":"000001","f14":"平安银行","f2":11.0,'
+            '"f3":2.5,"f6":200000000,"f20":15000000000,"f21":12000000000,'
+            '"f8":2.0,"f10":1.5,"f24":20.0,"f25":5.0}]}}'
         )
 
-        quotes = fetch_realtime_quotes({"sources": ["eastmoney"]})
+        with patch("quant_trading.screener._read_url", return_value=payload):
+            quotes = fetch_realtime_quotes({"sources": ["eastmoney"]})
 
-        self.assertEqual(quotes.attrs["source"], "东方财富全市场")
+        self.assertEqual(quotes.attrs["source"], "东方财富热榜扫描")
         self.assertEqual(quotes["code"].tolist(), ["000001"])
         self.assertEqual(quotes["pct_change"].tolist(), [2.5])
 

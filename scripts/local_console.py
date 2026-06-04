@@ -127,7 +127,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             params = parse_qs(parsed.query)
             strategy = _value(params, "strategy", "momentum")
             refresh_seconds = int(_value(params, "refresh", "60") or "60")
-            result = screen_market(strategy=strategy, limit=10, news_limit=3, quote_timeout=8)
+            result = screen_market(strategy=strategy, limit=10, news_limit=3, quote_timeout=20)
             append_research_log(
                 ROOT / "reports" / "research_log.jsonl",
                 "screener",

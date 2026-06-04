@@ -3,8 +3,9 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from dataclasses import dataclass
 from importlib import import_module
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
+import json
 import math
 import re
 
@@ -79,7 +80,7 @@ DEFAULT_WATCHLIST = {
 STRATEGIES = ("momentum", "breakout", "reversal", "overnight_yang")
 
 
-def screen_market(strategy: str = "momentum", limit: int = 10, news_limit: int = 3, quote_timeout: int = 8) -> ScreenResult:
+def screen_market(strategy: str = "momentum", limit: int = 10, news_limit: int = 3, quote_timeout: int = 20) -> ScreenResult:
     steps = [ResearchStep("初始化", "ok", f"使用 {strategy} 策略，目标候选数量 {limit}。")]
     hot_boards: list[HotBoard] = []
     fallback_message = ""
@@ -129,13 +130,13 @@ def screen_market(strategy: str = "momentum", limit: int = 10, news_limit: int =
     if not candidates and not fallback_message:
         candidates = _build_observation_pool(quotes, strategy, limit)
         steps.append(ResearchStep("观察池", "warn", f"严格策略未命中，展示 {len(candidates)} 个实时观察候选。"))
-    steps.append(ResearchStep("候选筛选", "ok" if strict_count else "warn", f"严格策略筛出 {strict_count} 个候选，当前展示 {len(candidates)} 个观察对象。"))
+    if strict_count:
+        filter_message = f"严格策略筛出 {strict_count} 个候选，按策略分展示前 {len(candidates)} 个。"
+    else:
+        filter_message = f"严格策略筛出 0 个候选，当前展示 {len(candidates)} 个观察对象。"
+    steps.append(ResearchStep("候选筛选", "ok" if strict_count else "warn", filter_message))
 
-    enriched = []
-    for candidate in candidates:
-        news = _manual_news_links(candidate.code) if fallback_message else fetch_stock_news(candidate.code, limit=news_limit)
-        sentiment_score, sentiment_label = score_news_sentiment(news)
-        enriched.append(_with_news(candidate, news, sentiment_score, sentiment_label))
+    enriched = _enrich_candidates_with_news(candidates, news_limit, fallback_message)
     steps.append(ResearchStep("新闻与情绪", "ok", f"完成 {len(enriched)} 个候选的新闻核验入口和情绪标签。"))
     status = "fallback" if fallback_message else "ok"
     return ScreenResult(strategy, enriched, hot_boards, status, fallback_message or "实时扫描完成。", steps)
@@ -214,9 +215,9 @@ def fetch_realtime_quotes(options: dict | None = None) -> pd.DataFrame:
     source_map = {
         "tencent": ("腾讯自选池", lambda: _fetch_tencent_quotes(watchlist)),
         "sina": ("新浪自选池", lambda: _fetch_sina_quotes(watchlist)),
-        "eastmoney": ("东方财富全市场", lambda: _fetch_eastmoney_quotes()),
+        "eastmoney": ("东方财富热榜扫描", lambda: _fetch_eastmoney_quotes()),
     }
-    source_order = options.get("sources") or ["tencent", "sina", "eastmoney"]
+    source_order = options.get("sources") or ["eastmoney", "tencent", "sina"]
     for source_key in source_order:
         source_name, fetcher = source_map[source_key]
         try:
@@ -232,27 +233,51 @@ def fetch_realtime_quotes(options: dict | None = None) -> pd.DataFrame:
 
 
 def _fetch_eastmoney_quotes() -> pd.DataFrame:
-    ak = import_module("akshare")
-    raw = ak.stock_zh_a_spot_em()
-    rename = {
-        "代码": "code",
-        "名称": "name",
-        "最新价": "price",
-        "涨跌幅": "pct_change",
-        "成交额": "amount",
-        "总市值": "market_cap",
-        "流通市值": "float_market_cap",
-        "换手率": "turnover_rate",
-        "量比": "volume_ratio",
-        "60日涨跌幅": "return_60d",
-        "年初至今涨跌幅": "return_ytd",
+    rows: list[dict] = []
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        for page_rows in executor.map(_fetch_eastmoney_rank_page, ("1", "0")):
+            rows.extend(page_rows)
+    if not rows:
+        raise ValueError("东方财富热榜返回为空")
+    frame = _normalize_quote_frame(pd.DataFrame(rows))
+    return frame.drop_duplicates(subset=["code"], keep="first").reset_index(drop=True)
+
+
+def _fetch_eastmoney_rank_page(sort_order: str, page_size: int = 100) -> list[dict]:
+    params = {
+        "pn": "1",
+        "pz": str(page_size),
+        "po": sort_order,
+        "np": "1",
+        "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+        "fltt": "2",
+        "invt": "2",
+        "fid": "f3",
+        "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048",
+        "fields": "f2,f3,f6,f8,f10,f12,f14,f20,f21,f23,f24,f25",
     }
-    frame = raw.rename(columns=rename).copy()
-    required = ["code", "name", "price", "pct_change", "amount", "turnover_rate", "volume_ratio"]
-    missing = [column for column in required if column not in frame.columns]
-    if missing:
-        raise ValueError(f"实时行情缺少字段: {missing}")
-    return _normalize_quote_frame(frame)
+    url = "http://82.push2.eastmoney.com/api/qt/clist/get?" + urlencode(params)
+    payload = _read_url(url, encoding="utf-8", headers={"Referer": "http://quote.eastmoney.com/center/gridlist.html"})
+    data = json.loads(payload)
+    diff = data.get("data", {}).get("diff", []) or []
+    rows = []
+    for item in diff:
+        rows.append(
+            {
+                "code": item.get("f12", ""),
+                "name": item.get("f14", ""),
+                "price": _number(item.get("f2", 0.0)),
+                "pct_change": _number(item.get("f3", 0.0)),
+                "amount": _number(item.get("f6", 0.0)),
+                "turnover_rate": _number(item.get("f8", 0.0)),
+                "volume_ratio": _number(item.get("f10", 0.0)),
+                "market_cap": _number(item.get("f20", 0.0)),
+                "float_market_cap": _number(item.get("f21", 0.0)),
+                "return_60d": _number(item.get("f24", 0.0)),
+                "return_ytd": _number(item.get("f25", 0.0)),
+            }
+        )
+    return rows
 
 
 def _fetch_tencent_quotes(watchlist: dict[str, str]) -> pd.DataFrame:
@@ -448,6 +473,21 @@ def _build_observation_pool(quotes: pd.DataFrame, strategy: str, limit: int) -> 
         if candidate is not None:
             observations.append(candidate)
     return sorted(observations, key=lambda item: item.score, reverse=True)[:limit]
+
+
+def _enrich_candidates_with_news(candidates: list[Candidate], news_limit: int, fallback_message: str) -> list[Candidate]:
+    if not candidates:
+        return []
+    if fallback_message:
+        return [_with_news(candidate, _manual_news_links(candidate.code), 0, "中性或待核验") for candidate in candidates]
+
+    def enrich(candidate: Candidate) -> Candidate:
+        news = fetch_stock_news(candidate.code, limit=news_limit)
+        sentiment_score, sentiment_label = score_news_sentiment(news)
+        return _with_news(candidate, news, sentiment_score, sentiment_label)
+
+    with ThreadPoolExecutor(max_workers=min(6, len(candidates))) as executor:
+        return list(executor.map(enrich, candidates))
 
 
 def _evaluate_observation_candidate(row: pd.Series, strategy: str) -> Candidate | None:
