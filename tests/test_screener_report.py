@@ -39,6 +39,8 @@ class ScreenerReportTests(unittest.TestCase):
         self.assertIn("实时盯盘选股", html)
         self.assertIn("热门板块", html)
         self.assertIn("研究流程", html)
+        self.assertIn("扫描摘要", html)
+        self.assertIn('class="workbench"', html)
         self.assertIn("候选研究卡片", html)
         self.assertIn("/stock?symbol=000001", html)
         self.assertIn("平安银行", html)
